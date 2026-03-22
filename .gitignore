@@ -1,5 +1,6 @@
 build/
 *.elf
+*.lst
 *.map
 *.nacp
 *.ovl

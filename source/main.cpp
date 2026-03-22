@@ -33,6 +33,22 @@ constexpr std::array<const char*, 7> kScaleLabels = {
     "0.50x", "0.75x", "1.00x", "1.25x", "1.50x", "1.75x", "2.00x",
 };
 
+constexpr std::array<float, 7> kStickScaleValues = {
+    0.75F, 1.00F, 1.25F, 1.50F, 1.75F, 2.00F, 2.25F,
+};
+
+constexpr std::array<const char*, 7> kStickScaleLabels = {
+    "0.75x", "1.00x", "1.25x", "1.50x", "1.75x", "2.00x", "2.25x",
+};
+
+constexpr std::array<float, 7> kStickTravelValues = {
+    0.75F, 1.00F, 1.25F, 1.50F, 1.75F, 2.00F, 2.25F,
+};
+
+constexpr std::array<const char*, 7> kStickTravelLabels = {
+    "0.75x", "1.00x", "1.25x", "1.50x", "1.75x", "2.00x", "2.25x",
+};
+
 struct OverlayConfig {
     enum class Corner {
         TopLeft,
@@ -42,6 +58,8 @@ struct OverlayConfig {
     Corner corner = Corner::BottomLeft;
     tsl::Color accent = kDefaultAccent;
     float scale = 1.0F;
+    float stickScale = 1.0F;
+    float stickTravel = 1.0F;
     bool backgroundPanel = true;
 };
 
@@ -142,6 +160,20 @@ size_t getScaleIndex(float scale) {
     return bestIndex;
 }
 
+template <size_t N>
+size_t getNearestIndex(float value, const std::array<float, N>& values) {
+    size_t bestIndex = 0;
+    float bestDistance = std::abs(value - values[0]);
+    for (size_t i = 1; i < values.size(); i++) {
+        const float distance = std::abs(value - values[i]);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            bestIndex = i;
+        }
+    }
+    return bestIndex;
+}
+
 std::string formatColorHex(const tsl::Color& color) {
     char buffer[16] = { 0 };
     std::snprintf(
@@ -195,6 +227,14 @@ OverlayConfig loadConfig() {
                 const float scale = std::strtof(value.c_str(), nullptr);
                 if (scale > 0.0F)
                     config.scale = std::clamp(scale, 0.5F, 2.0F);
+            } else if (key == "stick_scale") {
+                const float stickScale = std::strtof(value.c_str(), nullptr);
+                if (stickScale > 0.0F)
+                    config.stickScale = std::clamp(stickScale, 0.75F, 2.25F);
+            } else if (key == "stick_travel") {
+                const float stickTravel = std::strtof(value.c_str(), nullptr);
+                if (stickTravel > 0.0F)
+                    config.stickTravel = std::clamp(stickTravel, 0.75F, 2.25F);
             } else if (key == "background_panel") {
                 config.backgroundPanel = parseBool(value, config.backgroundPanel);
             }
@@ -230,6 +270,10 @@ void saveConfig(const OverlayConfig& config) {
         std::snprintf(line, sizeof(line), "accent=%s\n", formatColorHex(config.accent).c_str());
         output += line;
         std::snprintf(line, sizeof(line), "scale=%.2f\n", config.scale);
+        output += line;
+        std::snprintf(line, sizeof(line), "stick_scale=%.2f\n", config.stickScale);
+        output += line;
+        std::snprintf(line, sizeof(line), "stick_travel=%.2f\n", config.stickTravel);
         output += line;
         std::snprintf(line, sizeof(line), "background_panel=%s\n", config.backgroundPanel ? "on" : "off");
         output += line;
@@ -267,24 +311,27 @@ void drawCircleButton(tsl::gfx::Renderer* renderer, s32 cx, s32 cy, s32 radius, 
     renderer->drawCircle(cx, cy, std::max(1, radius - 1), false, outline);
 }
 
-void drawStick(tsl::gfx::Renderer* renderer, s32 cx, s32 cy, s32 radius, bool pressed, HidAnalogStickState state, tsl::Color accent, tsl::Color outline, tsl::Color fill) {
-    renderer->drawCircle(cx, cy, radius, true, fill);
-    renderer->drawCircle(cx, cy, radius, false, outline);
-    renderer->drawCircle(cx, cy, std::max(1, radius - 1), false, outline);
+void drawStick(tsl::gfx::Renderer* renderer, s32 cx, s32 cy, s32 radius, bool pressed, HidAnalogStickState state, float sizeScale, float travelScale, tsl::Color accent, tsl::Color outline, tsl::Color fill) {
+    const s32 outerRadius = std::max(4, static_cast<s32>(std::lround(static_cast<float>(radius) * sizeScale)));
+    const s32 nubRadius = std::max(3, static_cast<s32>(std::lround(static_cast<float>(radius) * 0.5F * sizeScale)));
+
+    renderer->drawCircle(cx, cy, outerRadius, true, fill);
+    renderer->drawCircle(cx, cy, outerRadius, false, outline);
+    renderer->drawCircle(cx, cy, std::max(1, outerRadius - 1), false, outline);
 
     if (pressed) {
-        renderer->drawCircle(cx, cy, radius + 3, false, accent);
-        renderer->drawCircle(cx, cy, radius + 4, false, accent);
+        renderer->drawCircle(cx, cy, outerRadius + 3, false, accent);
+        renderer->drawCircle(cx, cy, outerRadius + 4, false, accent);
     }
 
-    const float offsetRange = radius * 0.45F;
+    const float offsetRange = static_cast<float>(outerRadius) * 0.45F * travelScale;
     const float nx = std::clamp(static_cast<float>(state.x) / JOYSTICK_MAX, -1.0F, 1.0F);
     const float ny = std::clamp(static_cast<float>(state.y) / JOYSTICK_MAX, -1.0F, 1.0F);
     const s32 nubX = cx + static_cast<s32>(std::lround(nx * offsetRange));
     const s32 nubY = cy - static_cast<s32>(std::lround(ny * offsetRange));
 
-    renderer->drawCircle(nubX, nubY, std::max(3, radius / 2), true, accent);
-    renderer->drawCircle(nubX, nubY, std::max(3, radius / 2), false, outline);
+    renderer->drawCircle(nubX, nubY, nubRadius, true, accent);
+    renderer->drawCircle(nubX, nubY, nubRadius, false, outline);
 }
 
 void drawPlusMinus(tsl::gfx::Renderer* renderer, s32 x, s32 y, s32 w, s32 h, bool pressed, bool plus, tsl::Color accent, tsl::Color outline, tsl::Color fill) {
@@ -332,8 +379,8 @@ void drawGamepad(tsl::gfx::Renderer* renderer, const PreviewState& state, const 
     drawPlusMinus(renderer, x + scalePx(69), y + scalePx(18), scalePx(16), scalePx(8), pressed(HidNpadButton_Minus), false, accent, outline, fill);
     drawPlusMinus(renderer, x + scalePx(95), y + scalePx(18), scalePx(16), scalePx(8), pressed(HidNpadButton_Plus), true, accent, outline, fill);
 
-    drawStick(renderer, x + scalePx(44), y + scalePx(56), scalePx(13), pressed(HidNpadButton_StickL), state.leftStick, accent, outline, fill);
-    drawStick(renderer, x + scalePx(136), y + scalePx(96), scalePx(13), pressed(HidNpadButton_StickR), state.rightStick, accent, outline, fill);
+    drawStick(renderer, x + scalePx(44), y + scalePx(56), scalePx(13), pressed(HidNpadButton_StickL), state.leftStick, config.stickScale, config.stickTravel, accent, outline, fill);
+    drawStick(renderer, x + scalePx(136), y + scalePx(96), scalePx(13), pressed(HidNpadButton_StickR), state.rightStick, config.stickScale, config.stickTravel, accent, outline, fill);
 
     const s32 dpadCx = x + scalePx(44);
     const s32 dpadCy = y + scalePx(96);
@@ -410,9 +457,13 @@ private:
     void cycleCorner(int delta);
 
     tsl::elm::ListItem* m_cornerItem = nullptr;
+    tsl::elm::ListItem* m_stickScaleItem = nullptr;
+    tsl::elm::ListItem* m_stickTravelItem = nullptr;
     tsl::elm::ListItem* m_colorValueItem = nullptr;
     tsl::elm::ToggleListItem* m_panelToggle = nullptr;
     tsl::elm::NamedStepTrackBar* m_scaleBar = nullptr;
+    tsl::elm::NamedStepTrackBar* m_stickScaleBar = nullptr;
+    tsl::elm::NamedStepTrackBar* m_stickTravelBar = nullptr;
     tsl::elm::StepTrackBar* m_redBar = nullptr;
     tsl::elm::StepTrackBar* m_greenBar = nullptr;
     tsl::elm::StepTrackBar* m_blueBar = nullptr;
@@ -601,6 +652,32 @@ tsl::elm::Element* ConfigGui::createUI() {
     });
     list->addItem(m_scaleBar);
 
+    list->addItem(new tsl::elm::CategoryHeader("Thumb sticks", true));
+
+    m_stickScaleItem = new tsl::elm::ListItem("Stick size", kStickScaleLabels[getNearestIndex(GamepadOverlay::instance().state().config.stickScale, kStickScaleValues)]);
+    list->addItem(m_stickScaleItem);
+    m_stickScaleBar = new tsl::elm::NamedStepTrackBar("S", { "0.75x", "1.00x", "1.25x", "1.50x", "1.75x", "2.00x", "2.25x" });
+    m_stickScaleBar->setProgress(static_cast<u8>(getNearestIndex(GamepadOverlay::instance().state().config.stickScale, kStickScaleValues)));
+    m_stickScaleBar->setValueChangedListener([this](u8 value) {
+        auto& shared = GamepadOverlay::instance().state();
+        shared.config.stickScale = kStickScaleValues[value];
+        shared.persist();
+        this->syncWidgets();
+    });
+    list->addItem(m_stickScaleBar);
+
+    m_stickTravelItem = new tsl::elm::ListItem("Stick travel", kStickTravelLabels[getNearestIndex(GamepadOverlay::instance().state().config.stickTravel, kStickTravelValues)]);
+    list->addItem(m_stickTravelItem);
+    m_stickTravelBar = new tsl::elm::NamedStepTrackBar("T", { "0.75x", "1.00x", "1.25x", "1.50x", "1.75x", "2.00x", "2.25x" });
+    m_stickTravelBar->setProgress(static_cast<u8>(getNearestIndex(GamepadOverlay::instance().state().config.stickTravel, kStickTravelValues)));
+    m_stickTravelBar->setValueChangedListener([this](u8 value) {
+        auto& shared = GamepadOverlay::instance().state();
+        shared.config.stickTravel = kStickTravelValues[value];
+        shared.persist();
+        this->syncWidgets();
+    });
+    list->addItem(m_stickTravelBar);
+
     m_panelToggle = new tsl::elm::ToggleListItem("Background panel", GamepadOverlay::instance().state().config.backgroundPanel, "On", "Off");
     m_panelToggle->setStateChangedListener([this](bool state) {
         auto& shared = GamepadOverlay::instance().state();
@@ -670,12 +747,20 @@ void ConfigGui::syncWidgets() {
 
     if (m_cornerItem != nullptr)
         m_cornerItem->setValue(cornerToString(config.corner));
+    if (m_stickScaleItem != nullptr)
+        m_stickScaleItem->setValue(kStickScaleLabels[getNearestIndex(config.stickScale, kStickScaleValues)]);
+    if (m_stickTravelItem != nullptr)
+        m_stickTravelItem->setValue(kStickTravelLabels[getNearestIndex(config.stickTravel, kStickTravelValues)]);
     if (m_colorValueItem != nullptr)
         m_colorValueItem->setValue(formatColorHex(config.accent));
     if (m_panelToggle != nullptr)
         m_panelToggle->setState(config.backgroundPanel);
     if (m_scaleBar != nullptr)
         m_scaleBar->setProgress(static_cast<u8>(getScaleIndex(config.scale)));
+    if (m_stickScaleBar != nullptr)
+        m_stickScaleBar->setProgress(static_cast<u8>(getNearestIndex(config.stickScale, kStickScaleValues)));
+    if (m_stickTravelBar != nullptr)
+        m_stickTravelBar->setProgress(static_cast<u8>(getNearestIndex(config.stickTravel, kStickTravelValues)));
     if (m_redBar != nullptr)
         m_redBar->setProgress(config.accent.r);
     if (m_greenBar != nullptr)

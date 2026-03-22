@@ -1,6 +1,6 @@
 {
   "name": "Gamepad Overlay",
-  "version": "v1.0.0",
+  "version": "v1.0.1",
   "color": "#6F35F5",
   "description": "Compact player 1 controller preview with customizable highlight color"
 }
