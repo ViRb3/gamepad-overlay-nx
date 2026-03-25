@@ -20,7 +20,9 @@ constexpr float kBaseWidth = 180.0F;
 constexpr float kBaseHeight = 128.0F;
 constexpr float kMargin = 24.0F;
 constexpr u8 kBackdropAlpha = 3;
-constexpr char TESLA_MENU_PATH[] = "sdmc:/switch/.overlays/ovlmenu.ovl";
+constexpr char OVL_DIR[] = "sdmc:/switch/.overlays/";
+
+std::string g_ovlPath;
 
 constexpr tsl::Color kDefaultAccent = { 0xB, 0x6, 0xF, 0xF };
 constexpr tsl::Color kWhite = { 0xF, 0xF, 0xF, 0xF };
@@ -139,12 +141,11 @@ OverlayConfig::Corner parseCorner(const std::string& rawValue) {
 const char* cornerToString(OverlayConfig::Corner corner) {
     switch (corner) {
         case OverlayConfig::Corner::TopLeft:
-            return "Left Up";
+            return "Top Left";
         case OverlayConfig::Corner::BottomLeft:
-            return "Left Down";
-        default:
-            return "Left Down";
+            return "Bottom Left";
     }
+    return "Bottom Left";
 }
 
 size_t getScaleIndex(float scale) {
@@ -471,13 +472,21 @@ private:
 
 class HudGui : public tsl::Gui {
 public:
+    HudGui() {
+        tsl::hlp::requestForeground(false);
+    }
+
+    ~HudGui() {
+        tsl::hlp::requestForeground(true);
+    }
+
     virtual tsl::elm::Element* createUI() override {
         return new HudCanvas();
     }
 
     virtual void update() override;
 
-    virtual bool handleInput(u64 keysDown, u64, const HidTouchState&, HidAnalogStickState, HidAnalogStickState) override;
+    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState&, HidAnalogStickState, HidAnalogStickState) override;
 };
 
 class GamepadOverlay : public tsl::Overlay {
@@ -492,20 +501,6 @@ public:
 
     SharedState& state() {
         return m_state;
-    }
-
-    void openHud() {
-        this->m_hudActive = true;
-        this->m_returnToConfigOnShow = false;
-        tsl::hlp::requestForeground(false);
-        tsl::changeTo<HudGui>();
-    }
-
-    void closeHudToConfig() {
-        this->m_hudActive = false;
-        this->m_returnToConfigOnShow = false;
-        tsl::hlp::requestForeground(true);
-        tsl::goBack();
     }
 
     void drawHud(tsl::gfx::Renderer* renderer) {
@@ -548,18 +543,12 @@ public:
 
     virtual void exitServices() override {}
 
-    virtual void onShow() override {
-        if (this->m_returnToConfigOnShow) {
-            this->m_returnToConfigOnShow = false;
-            this->m_hudActive = false;
-            tsl::goBack();
-        }
-    }
+    virtual void onShow() override {}
 
     virtual void onHide() override {
-        if (this->m_hudActive) {
-            this->m_returnToConfigOnShow = true;
-            tsl::hlp::requestForeground(true);
+        if (dynamic_cast<HudGui*>(this->getCurrentGui().get())) {
+            tsl::setNextOverlay(g_ovlPath);
+            this->close();
         }
     }
 
@@ -571,8 +560,6 @@ private:
     inline static GamepadOverlay* s_instance = nullptr;
 
     SharedState m_state;
-    bool m_hudActive = false;
-    bool m_returnToConfigOnShow = false;
 };
 
 void HudCanvas::draw(tsl::gfx::Renderer* renderer) {
@@ -614,12 +601,12 @@ tsl::elm::Element* ConfigGui::createUI() {
     auto* list = new tsl::elm::List();
 
     list->addItem(new tsl::elm::CategoryHeader("Launch"));
-    auto* hudItem = new tsl::elm::ListItem("Start", "A");
+    auto* hudItem = new tsl::elm::ListItem("Start");
     hudItem->setClickListener([](u64 keys) {
         if (!(keys & HidNpadButton_A))
             return false;
 
-        GamepadOverlay::instance().openHud();
+        tsl::changeTo<HudGui>();
         return true;
     });
     list->addItem(hudItem);
@@ -721,7 +708,7 @@ tsl::elm::Element* ConfigGui::createUI() {
     });
     list->addItem(m_blueBar);
 
-    auto* resetItem = new tsl::elm::ListItem("Reset defaults", "A");
+    auto* resetItem = new tsl::elm::ListItem("Reset defaults");
     resetItem->setClickListener([this](u64 keys) {
         if (!(keys & HidNpadButton_A))
             return false;
@@ -770,31 +757,23 @@ void ConfigGui::syncWidgets() {
 }
 
 void ConfigGui::cycleCorner(int delta) {
+    constexpr OverlayConfig::Corner corners[] = {
+        OverlayConfig::Corner::TopLeft,
+        OverlayConfig::Corner::BottomLeft,
+    };
+    constexpr int count = static_cast<int>(std::size(corners));
+
     auto& shared = GamepadOverlay::instance().state();
     int index = 0;
-
-    switch (shared.config.corner) {
-        case OverlayConfig::Corner::TopLeft:
-            index = 0;
+    for (int i = 0; i < count; i++) {
+        if (corners[i] == shared.config.corner) {
+            index = i;
             break;
-        case OverlayConfig::Corner::BottomLeft:
-            index = 1;
-            break;
+        }
     }
 
-    index = (index + delta + 2) % 2;
-
-    switch (index) {
-        case 0:
-            shared.config.corner = OverlayConfig::Corner::TopLeft;
-            break;
-        case 1:
-            shared.config.corner = OverlayConfig::Corner::BottomLeft;
-            break;
-        default:
-            shared.config.corner = OverlayConfig::Corner::BottomLeft;
-            break;
-    }
+    index = (index + delta + count) % count;
+    shared.config.corner = corners[index];
 
     shared.persist();
     this->syncWidgets();
@@ -804,25 +783,19 @@ void HudGui::update() {
     GamepadOverlay::instance().state().updatePreview();
 }
 
-bool HudGui::handleInput(u64 keysDown, u64, const HidTouchState&, HidAnalogStickState, HidAnalogStickState) {
-    if (keysDown & HidNpadButton_B)
-        return true;
-
-    return false;
+bool HudGui::handleInput(u64 keysDown, u64 keysHeld, const HidTouchState&, HidAnalogStickState, HidAnalogStickState) {
+    return keysDown != 0;
 }
 
 bool ConfigGui::handleInput(u64 keysDown, u64, const HidTouchState&, HidAnalogStickState, HidAnalogStickState) {
-    if (keysDown & HidNpadButton_X) {
-        tsl::setNextOverlay(TESLA_MENU_PATH);
-        GamepadOverlay::instance().close();
-        return true;
-    }
-
     return false;
 }
 
 } // namespace
 
 int main(int argc, char** argv) {
-    return tsl::loop<GamepadOverlay, tsl::impl::LaunchFlags::None>(argc, argv);
+    if (argc > 0)
+        g_ovlPath = std::string(OVL_DIR) + argv[0];
+
+    return tsl::loop<GamepadOverlay>(argc, argv);
 }

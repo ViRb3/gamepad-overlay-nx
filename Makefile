@@ -83,13 +83,22 @@ export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
 all: $(BUILD)
 
-$(BUILD):
+$(BUILD): patch
 	@[ -d $@ ] || mkdir -p $@
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+
+.PHONY: patch
+patch:
+	@for p in $(CURDIR)/patches/*.patch; do \
+		[ -f "$$p" ] && patch -N -r - -p1 -d $(CURDIR)/lib/libtesla < "$$p" || true; \
+	done
 
 clean:
 	@echo clean ...
 	@rm -fr $(BUILD) $(TARGET).ovl $(TARGET).nacp $(TARGET).elf $(TARGET).map
+	@for p in $(CURDIR)/patches/*.patch; do \
+		[ -f "$$p" ] && patch -R -N -r - -p1 -d $(CURDIR)/lib/libtesla < "$$p" || true; \
+	done
 
 else
 .PHONY:	all

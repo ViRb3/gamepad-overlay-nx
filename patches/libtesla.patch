@@ -1,0 +1,27 @@
+--- a/include/tesla.hpp
++++ b/include/tesla.hpp
+@@ -3213,9 +3213,11 @@
+                 // Hide overlay when touching out of bounds
+                 if (touchPos.x >= cfg::FramebufferWidth) {
+                     if (tsl::elm::Element::getInputMode() == tsl::InputMode::Touch) {
++#ifndef TESLA_IGNORE_TOUCH_HIDE
+                         oldTouchPos = { 0 };
+                         initialTouchPos = { 0 };
+
+                         this->hide();
++#endif
+                     }
+                 }
+@@ -3452,10 +3454,12 @@
+                 s32 idx = 0;
+                 Result rc = waitObjects(&idx, objects, WaiterObject_Count, 20'000'000ul);
+                 if (R_SUCCEEDED(rc)) {
++#ifndef TESLA_PRESERVE_OVERLAY_ON_HOME
+                     if (shData->overlayOpen) {
+                         tsl::Overlay::get()->hide();
+                         shData->overlayOpen = false;
+                     }
++#endif
+
+                     switch (idx) {
+                         case WaiterObject_HomeButton:
