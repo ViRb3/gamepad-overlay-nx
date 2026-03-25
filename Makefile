@@ -8,7 +8,6 @@ $(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path to>/de
 endif
 
 TOPDIR ?= $(CURDIR)
-LIBTESLA_DIR ?= /home/etonedemid/screenrotate/lib/libtesla
 
 include $(DEVKITPRO)/libnx/switch_rules
 
@@ -21,7 +20,7 @@ include $(DEVKITPRO)/libnx/switch_rules
 TARGET		:=	gamepadoverlay
 BUILD		:=	build
 SOURCES		:=	source
-INCLUDES	:=	include $(LIBTESLA_DIR)/include
+INCLUDES	:=	include lib/libtesla/include
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -74,7 +73,7 @@ export OFILES_SRC	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 export OFILES 	:=	$(OFILES_BIN) $(OFILES_SRC)
 export HFILES_BIN	:=
 
-export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(dir)) \
+export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
 			-I$(CURDIR)/$(BUILD)
 
